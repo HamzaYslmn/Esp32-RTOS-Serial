@@ -3,8 +3,9 @@
 // Task buffer structure
 struct TaskBuffer {
   TaskHandle_t taskHandle;
-  String buffer;
+  char* buffer;  // Dynamic buffer to support configurable size
   bool hasData;
+  int bufferSize;  // Track buffer size for each task
 };
 
 // Simple mutex for thread safety
@@ -12,6 +13,7 @@ static SemaphoreHandle_t serialMutex = nullptr;
 static TaskBuffer taskBuffers[MAX_TASK_BUFFERS];
 static int registeredTasks = 0;
 static TaskHandle_t readerTaskHandle = nullptr;
+static int configuredBufferSize = DEFAULT_BUFFER_SIZE;  // Track configured buffer size
 
 // Reader task that broadcasts serial input to all registered tasks
 void serialReaderTask(void* parameter) {
@@ -24,8 +26,12 @@ void serialReaderTask(void* parameter) {
         // Broadcast to all registered task buffers
         if (xSemaphoreTake(serialMutex, portMAX_DELAY) == pdTRUE) {
           for (int i = 0; i < registeredTasks; i++) {
-            taskBuffers[i].buffer = input;  // Overwrite previous (keep only latest)
-            taskBuffers[i].hasData = true;
+            if (taskBuffers[i].buffer != nullptr) {
+              // Copy input to buffer, truncate if necessary
+              strncpy(taskBuffers[i].buffer, input.c_str(), taskBuffers[i].bufferSize - 1);
+              taskBuffers[i].buffer[taskBuffers[i].bufferSize - 1] = '\0';  // Ensure null termination
+              taskBuffers[i].hasData = true;
+            }
           }
           xSemaphoreGive(serialMutex);
         }
@@ -36,14 +42,27 @@ void serialReaderTask(void* parameter) {
 }
 
 void rtosSerialInit() {
+  rtosSerialInit(DEFAULT_BUFFER_SIZE);  // Use default buffer size
+}
+
+void rtosSerialInit(int bufferSize) {
+  // Validate buffer size
+  if (bufferSize < 1) {
+    bufferSize = DEFAULT_BUFFER_SIZE;
+  } else if (bufferSize > MAX_ALLOWED_BUFFER_SIZE) {
+    bufferSize = MAX_ALLOWED_BUFFER_SIZE;
+  }
+  
   if (serialMutex == nullptr) {
+    configuredBufferSize = bufferSize;
     serialMutex = xSemaphoreCreateMutex();
     
     // Initialize task buffers
     for (int i = 0; i < MAX_TASK_BUFFERS; i++) {
       taskBuffers[i].taskHandle = nullptr;
-      taskBuffers[i].buffer = "";
+      taskBuffers[i].buffer = nullptr;  // Will be allocated when task registers
       taskBuffers[i].hasData = false;
+      taskBuffers[i].bufferSize = 0;
     }
     
     // Create the serial reader task
@@ -67,11 +86,12 @@ void rtosPrintln(const String& msg) {
 
 void rtosPrintf(const char* format, ...) {
   if (serialMutex && xSemaphoreTake(serialMutex, portMAX_DELAY) == pdTRUE) {
+    char buffer[256];  // Local buffer for formatted string
     va_list args;
     va_start(args, format);
-    Serial.printf(format, args);
-    Serial.println();
+    vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
+    Serial.println(buffer);
     xSemaphoreGive(serialMutex);
   }
 }
@@ -95,15 +115,22 @@ String rtosRead() {
     if (taskIndex == -1 && registeredTasks < MAX_TASK_BUFFERS) {
       taskIndex = registeredTasks;
       taskBuffers[taskIndex].taskHandle = currentTask;
-      taskBuffers[taskIndex].buffer = "";
-      taskBuffers[taskIndex].hasData = false;
-      registeredTasks++;
+      taskBuffers[taskIndex].bufferSize = configuredBufferSize;
+      taskBuffers[taskIndex].buffer = (char*)malloc(configuredBufferSize);
+      if (taskBuffers[taskIndex].buffer != nullptr) {
+        taskBuffers[taskIndex].buffer[0] = '\0';  // Initialize empty string
+        taskBuffers[taskIndex].hasData = false;
+        registeredTasks++;
+      } else {
+        // Failed to allocate memory, reset task index
+        taskIndex = -1;
+      }
     }
     
     String result = "";
-    if (taskIndex != -1 && taskBuffers[taskIndex].hasData) {
-      result = taskBuffers[taskIndex].buffer;
-      taskBuffers[taskIndex].buffer = "";  // Clear after reading
+    if (taskIndex != -1 && taskBuffers[taskIndex].hasData && taskBuffers[taskIndex].buffer != nullptr) {
+      result = String(taskBuffers[taskIndex].buffer);
+      taskBuffers[taskIndex].buffer[0] = '\0';  // Clear after reading
       taskBuffers[taskIndex].hasData = false;
     }
     

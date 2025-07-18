@@ -12,7 +12,7 @@
 
 // Task 1: Print a message every second
 void task1(void* parameter) {
-  static int counter = 0;  // Use static to ensure proper initialization
+  int counter = 0;  // Local variable, initialized each time task starts
   while (true) {
     rtosPrintf("Task 1 - Counter: %d", counter++);
     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -44,14 +44,15 @@ void task3(void* parameter) {
 void setup() {
   Serial.begin(115200);
   
-  // Initialize the thread-safe serial interface
-  rtosSerialInit();
+  // Initialize the thread-safe serial interface with 128-byte buffers per task
+  rtosSerialInit(128);
   
   rtosPrintln("=== Esp32-RTOS-Serial Multi-Task Example ===");
   rtosPrintln("Three tasks will run simultaneously:");
   rtosPrintln("- Task 1: Counter every 1 second");
   rtosPrintln("- Task 2: Responds to input starting with 'task2'");
   rtosPrintln("- Task 3: Responds to input starting with 'task3'");
+  rtosPrintln("Buffer size per task: 128 bytes");
   rtosPrintln("Type 'task2 hello' or 'task3 world' to test");
   rtosPrintln("============================================");
   
