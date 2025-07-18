@@ -16,8 +16,8 @@
  *   rtosPrintln("Hello World");          // Thread-safe print with newline
  *   rtosPrint("Hello ");                 // Thread-safe print without newline
  *   rtosPrintf("Value: %d", 42);         // Thread-safe printf style
- *   String input = rtosRead();           // Thread-safe read (use only in one task)
- */
+ *   String input = rtosRead();           // Thread-safe read (safe for all tasks)
+*/
 
 // Simple thread-safe serial functions
 void rtosSerialInit();
