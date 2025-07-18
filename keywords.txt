@@ -1,0 +1,33 @@
+#######################################
+# Syntax Coloring Map For Esp32-RTOS-Serial
+#######################################
+
+#######################################
+# Library (KEYWORD3)
+#######################################
+
+Esp32-RTOS-Serial	KEYWORD3
+rtosSerial	KEYWORD3
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+String	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+rtosSerialInit	KEYWORD2
+rtosPrint	KEYWORD2
+rtosPrintln	KEYWORD2
+rtosPrintf	KEYWORD2
+rtosRead	KEYWORD2
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+
+portMAX_DELAY	LITERAL1
+pdTRUE	LITERAL1
