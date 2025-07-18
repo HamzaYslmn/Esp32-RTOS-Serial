@@ -38,7 +38,7 @@ void loop() {
   rtosPrint("Hello ");
   rtosPrintf("Value: %d", 42);
   
-  // Thread-safe read (use only in one task)
+  // Thread-safe read 
   String input = rtosRead();
   if (input.length() > 0) {
     rtosPrintln("Received: " + input);
