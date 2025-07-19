@@ -33,7 +33,7 @@ void task2(void* parameter) {
 // Task 3: Handle user input with ping pong and show latency
 void task3(void* parameter) {
   while (true) {
-    unsigned long startTime = millis(); // Ölçüm başı
+    unsigned long startTime = millis();
     String input = rtosRead();
     if ((input.length() > 0) && (input.startsWith("task3"))) {
       rtosPrintln("Task 3 - Received: " + input);
@@ -46,9 +46,9 @@ void task3(void* parameter) {
 
 void setup() {
   Serial.begin(115200);
-  
-  // Initialize the thread-safe serial interface with 128-byte buffers per task
-  rtosSerialInit(128);
+
+  // Initialize the thread-safe serial interface with 256-byte buffers per task
+  rtosSerialInit(256);
   
   rtosPrintln("=== Esp32-RTOS-Serial Multi-Task Example ===");
   rtosPrintln("Three tasks will run simultaneously:");
@@ -60,9 +60,9 @@ void setup() {
   rtosPrintln("============================================");
   
   // Create tasks
-  xTaskCreate(task1, "Task1", 2048, NULL, 1, NULL);
-  xTaskCreate(task2, "Task2", 2048, NULL, 1, NULL);
-  xTaskCreate(task3, "Task3", 2048, NULL, 1, NULL);
+  xTaskCreatePinnedToCore(task1, "t1", 2048, NULL, 1, NULL, PRO_CPU_NUM);
+  xTaskCreatePinnedToCore(task2, "t2", 2048, NULL, 1, NULL, APP_CPU_NUM);
+  xTaskCreatePinnedToCore(task3, "t3", 2048, NULL, 1, NULL, APP_CPU_NUM);
 }
 
 void loop() {

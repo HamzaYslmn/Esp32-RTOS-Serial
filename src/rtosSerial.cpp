@@ -1,141 +1,129 @@
 #include "rtosSerial.h"
 
-// Task buffer structure
 struct TaskBuffer {
   TaskHandle_t taskHandle;
-  char* buffer;  // Dynamic buffer to support configurable size
-  bool hasData;
-  int bufferSize;  // Track buffer size for each task
+  RingbufHandle_t ringbuf;
+  size_t ringSize;
 };
 
-// Simple mutex for thread safety
 static SemaphoreHandle_t serialMutex = nullptr;
 static TaskBuffer taskBuffers[MAX_TASK_BUFFERS];
-static int registeredTasks = 0;
+static size_t registeredTasks = 0;
+static size_t configuredRingSize = DEFAULT_RING_SIZE;
 static TaskHandle_t readerTaskHandle = nullptr;
-static int configuredBufferSize = DEFAULT_BUFFER_SIZE;  // Track configured buffer size
 
-// Reader task that broadcasts serial input to all registered tasks
-void serialReaderTask(void* parameter) {
+static void serialReaderTask(void* /*pv*/) {
   while (true) {
     if (Serial.available()) {
-      String input = Serial.readStringUntil('\n');
-      input.trim();
-      
-      if (input.length() > 0) {
-        // Broadcast to all registered task buffers
-        if (xSemaphoreTake(serialMutex, portMAX_DELAY) == pdTRUE) {
-          for (int i = 0; i < registeredTasks; i++) {
-            if (taskBuffers[i].buffer != nullptr) {
-              // Copy input to buffer, truncate if necessary
-              strncpy(taskBuffers[i].buffer, input.c_str(), taskBuffers[i].bufferSize - 1);
-              taskBuffers[i].buffer[taskBuffers[i].bufferSize - 1] = '\0';  // Ensure null termination
-              taskBuffers[i].hasData = true;
+      String line = Serial.readStringUntil('\n');
+      line.trim();
+      if (line.length() > 0) {
+        line += '\0';  // include terminator
+        const char* raw = line.c_str();
+        size_t len = line.length() + 1;
+
+        // Broadcast to every registered ring buffer
+        for (size_t i = 0; i < registeredTasks; ++i) {
+          RingbufHandle_t rb = taskBuffers[i].ringbuf;
+          if (!rb) continue;
+          // If there is no space, discard the old message and try again
+          if (xRingbufferSend(rb, raw, len, 0) != pdTRUE) {
+            size_t rcvLen;
+            char* discard = (char*)xRingbufferReceive(rb, &rcvLen, 0);
+            if (discard) {
+              vRingbufferReturnItem(rb, discard);
             }
+            xRingbufferSend(rb, raw, len, 10 / portTICK_PERIOD_MS);
           }
-          xSemaphoreGive(serialMutex);
         }
       }
     }
-    vTaskDelay(pdMS_TO_TICKS(10)); // Small delay to prevent busy waiting
+    vTaskDelay(pdMS_TO_TICKS(100));
   }
 }
 
 void rtosSerialInit() {
-  rtosSerialInit(DEFAULT_BUFFER_SIZE);  // Use default buffer size
+  rtosSerialInit(DEFAULT_RING_SIZE);
 }
 
-void rtosSerialInit(int bufferSize) {
-  // Validate buffer size
-  if (bufferSize < 1) {
-    bufferSize = DEFAULT_BUFFER_SIZE;
-  } else if (bufferSize > MAX_ALLOWED_BUFFER_SIZE) {
-    bufferSize = MAX_ALLOWED_BUFFER_SIZE;
-  }
-  
-  if (serialMutex == nullptr) {
-    configuredBufferSize = bufferSize;
+void rtosSerialInit(size_t ringSize) {
+  if (ringSize < 64) ringSize = DEFAULT_RING_SIZE;
+  if (ringSize > MAX_RING_SIZE) ringSize = MAX_RING_SIZE;
+
+  configuredRingSize = ringSize;
+
+  if (!serialMutex) {
     serialMutex = xSemaphoreCreateMutex();
-    
-    // Initialize task buffers
-    for (int i = 0; i < MAX_TASK_BUFFERS; i++) {
+    for (int i = 0; i < MAX_TASK_BUFFERS; ++i) {
       taskBuffers[i].taskHandle = nullptr;
-      taskBuffers[i].buffer = nullptr;  // Will be allocated when task registers
-      taskBuffers[i].hasData = false;
-      taskBuffers[i].bufferSize = 0;
+      taskBuffers[i].ringbuf   = nullptr;
+      taskBuffers[i].ringSize  = 0;
     }
-    
-    // Create the serial reader task
-    xTaskCreate(serialReaderTask, "SerialReader", 2048, NULL, 2, &readerTaskHandle);
+    xTaskCreatePinnedToCore(serialReaderTask, "SerialReader", 4096, nullptr, 2, &readerTaskHandle, 1);
   }
+}
+
+static TaskBuffer* getOrRegisterTaskBuffer() {
+  TaskHandle_t current = xTaskGetCurrentTaskHandle();
+
+  // Find existing one
+  for (size_t i = 0; i < registeredTasks; ++i) {
+    if (taskBuffers[i].taskHandle == current) {
+      return &taskBuffers[i];
+    }
+  }
+
+  // New registration
+  if (registeredTasks >= MAX_TASK_BUFFERS) return nullptr;
+
+  TaskBuffer& tb = taskBuffers[registeredTasks];
+  tb.taskHandle = current;
+  tb.ringSize   = configuredRingSize;
+  tb.ringbuf    = xRingbufferCreate(tb.ringSize, RINGBUF_TYPE_NOSPLIT);
+  if (!tb.ringbuf) return nullptr;
+  registeredTasks++;
+  return &tb;
+}
+
+String rtosRead() {
+  TaskBuffer* tb = getOrRegisterTaskBuffer();
+  if (!tb || !tb->ringbuf) return "";
+
+  size_t len;
+  char* item = (char*)xRingbufferReceive(tb->ringbuf, &len, 0);
+  if (item) {
+    String res(item);
+    vRingbufferReturnItem(tb->ringbuf, item);
+    return res;
+  }
+  return "";
 }
 
 void rtosPrint(const String& msg) {
-  if (serialMutex && xSemaphoreTake(serialMutex, portMAX_DELAY) == pdTRUE) {
+  if (!serialMutex) return;
+  if (xSemaphoreTake(serialMutex, portMAX_DELAY) == pdTRUE) {
     Serial.print(msg);
     xSemaphoreGive(serialMutex);
   }
 }
 
 void rtosPrintln(const String& msg) {
-  if (serialMutex && xSemaphoreTake(serialMutex, portMAX_DELAY) == pdTRUE) {
+  if (!serialMutex) return;
+  if (xSemaphoreTake(serialMutex, portMAX_DELAY) == pdTRUE) {
     Serial.println(msg);
     xSemaphoreGive(serialMutex);
   }
 }
 
 void rtosPrintf(const char* format, ...) {
-  if (serialMutex && xSemaphoreTake(serialMutex, portMAX_DELAY) == pdTRUE) {
-    char buffer[256];  // Local buffer for formatted string
+  if (!serialMutex) return;
+  if (xSemaphoreTake(serialMutex, portMAX_DELAY) == pdTRUE) {
+    char buf[256];
     va_list args;
     va_start(args, format);
-    vsnprintf(buffer, sizeof(buffer), format, args);
+    vsnprintf(buf, sizeof(buf), format, args);
     va_end(args);
-    Serial.println(buffer);
+    Serial.println(buf);
     xSemaphoreGive(serialMutex);
   }
-}
-
-String rtosRead() {
-  TaskHandle_t currentTask = xTaskGetCurrentTaskHandle();
-  
-  if (serialMutex && xSemaphoreTake(serialMutex, portMAX_DELAY) == pdTRUE) {
-    // Find or register this task
-    int taskIndex = -1;
-    
-    // Look for existing registration
-    for (int i = 0; i < registeredTasks; i++) {
-      if (taskBuffers[i].taskHandle == currentTask) {
-        taskIndex = i;
-        break;
-      }
-    }
-    
-    // Register new task if not found and space available
-    if (taskIndex == -1 && registeredTasks < MAX_TASK_BUFFERS) {
-      taskIndex = registeredTasks;
-      taskBuffers[taskIndex].taskHandle = currentTask;
-      taskBuffers[taskIndex].bufferSize = configuredBufferSize;
-      taskBuffers[taskIndex].buffer = (char*)malloc(configuredBufferSize);
-      if (taskBuffers[taskIndex].buffer != nullptr) {
-        taskBuffers[taskIndex].buffer[0] = '\0';  // Initialize empty string
-        taskBuffers[taskIndex].hasData = false;
-        registeredTasks++;
-      } else {
-        // Failed to allocate memory, reset task index
-        taskIndex = -1;
-      }
-    }
-    
-    String result = "";
-    if (taskIndex != -1 && taskBuffers[taskIndex].hasData && taskBuffers[taskIndex].buffer != nullptr) {
-      result = String(taskBuffers[taskIndex].buffer);
-      taskBuffers[taskIndex].buffer[0] = '\0';  // Clear after reading
-      taskBuffers[taskIndex].hasData = false;
-    }
-    
-    xSemaphoreGive(serialMutex);
-    return result;
-  }
-  return "";
 }
