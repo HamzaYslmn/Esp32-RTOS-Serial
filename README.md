@@ -52,7 +52,7 @@ void loop() {
 
 ### Functions
 
-#### `void rtosSerialInit()`
+#### `void rtosSerialInit(128)` //128byte buffer each task
 Initialize the thread-safe serial interface. **Must be called once in setup()**.
 
 #### `void rtosPrint(const String& msg)`
