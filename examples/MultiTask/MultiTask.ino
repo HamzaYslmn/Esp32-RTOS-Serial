@@ -30,12 +30,15 @@ void task2(void* parameter) {
   }
 }
 
-// Task 3: Handle user input
+// Task 3: Handle user input with ping pong and show latency
 void task3(void* parameter) {
   while (true) {
+    unsigned long startTime = millis(); // Ölçüm başı
     String input = rtosRead();
     if ((input.length() > 0) && (input.startsWith("task3"))) {
       rtosPrintln("Task 3 - Received: " + input);
+      unsigned long latency = millis() - startTime;
+      rtosPrintf("Task 3 - Latency: %lu ms", latency);
     }
     vTaskDelay(pdMS_TO_TICKS(100));
   }
