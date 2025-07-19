@@ -29,7 +29,7 @@ A lightweight, thread-safe Serial communication library for ESP32 with FreeRTOS 
 
 void setup() {
   Serial.begin(115200);
-  rtosSerialInit(); // Initialize the thread-safe serial interface
+  rtosSerialInit(128); // Initialize the thread-safe serial interface, 128byte buffer each task
 }
 
 void loop() {
@@ -52,7 +52,7 @@ void loop() {
 
 ### Functions
 
-#### `void rtosSerialInit(128)` //128byte buffer each task
+#### `void rtosSerialInit()`
 Initialize the thread-safe serial interface. **Must be called once in setup()**.
 
 #### `void rtosPrint(const String& msg)`
