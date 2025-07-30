@@ -85,6 +85,21 @@ static TaskBuffer* getOrRegisterTaskBuffer() {
   return &tb;
 }
 
+size_t rtosReadBytes(uint8_t* buf, size_t maxlen) {
+  TaskBuffer* tb = getOrRegisterTaskBuffer();
+  if (!tb || !tb->ringbuf || !buf || maxlen == 0) return 0;
+
+  size_t len;
+  char* item = (char*)xRingbufferReceive(tb->ringbuf, &len, 0);
+  if (item && len > 0) {
+    size_t toCopy = (len > maxlen) ? maxlen : len;
+    memcpy(buf, item, toCopy);
+    vRingbufferReturnItem(tb->ringbuf, item);
+    return toCopy;
+  }
+  return 0;
+}
+
 String rtosRead() {
   TaskBuffer* tb = getOrRegisterTaskBuffer();
   if (!tb || !tb->ringbuf) return "";

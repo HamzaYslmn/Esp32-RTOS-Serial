@@ -30,5 +30,6 @@ void rtosPrintln(const String& msg);
 void rtosPrintf(const char* format, ...);
 
 String rtosRead();                     // Non-blocking; returns "" if no data
+size_t rtosReadBytes(uint8_t* buf, size_t maxlen); // Non-blocking; returns number of bytes read
 
 #endif  // RTOS_SERIAL_H
