@@ -19,7 +19,7 @@
  */
 
 #define MAX_TASK_BUFFERS 8
-#define DEFAULT_RING_SIZE 256
+#define DEFAULT_RING_SIZE 512
 #define MAX_RING_SIZE 1024
 
 void rtosSerialInit();                 // default ring size
