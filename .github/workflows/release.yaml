@@ -1,0 +1,73 @@
+name: Release Arduino Library
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'release') || contains(github.event.head_commit.message, 'bump') || contains(github.event.head_commit.message, 'version')
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+        
+      - name: 📦 Prepare Release
+        run: |
+          git fetch --tags
+          LAST=$(git tag -l 'v*.*.*' --sort=-v:refname | head -1)
+          if [ -z "$LAST" ]; then NEW="v0.0.1"
+          else IFS='.' read -r MAJ MIN PAT <<< "${LAST#v}"; NEW="v$MAJ.$MIN.$((PAT+1))"; fi
+          echo "VERSION=$NEW" >> $GITHUB_ENV
+          echo "LAST_TAG=$LAST" >> $GITHUB_ENV
+          echo "New version will be: $NEW"
+          echo "Previous version was: $LAST"
+          
+      - name: Update library.properties
+        run: |
+          VERSION_NUM=${VERSION#v}
+          sed -i "s/^version=.*/version=$VERSION_NUM/" library.properties
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add library.properties
+          git commit -m "Update version to $VERSION_NUM" || echo "No changes to commit"
+          
+      - name: Create and push tag
+        run: |
+          git tag -a "$VERSION" -m "Release $VERSION"
+          git push origin main
+          git push origin "$VERSION"
+          
+      - name: Create release archive
+        run: |
+          mkdir -p dist
+          zip -r "dist/Esp32-RTOS-Serial.zip" \
+            src/ examples/ keywords.txt library.properties LICENSE README.md
+            
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: "${{ env.VERSION }}"
+          name: "ESP32 RTOS Serial ${{ env.VERSION }}"
+          body: |
+            ## ESP32 RTOS Serial Library ${{ env.VERSION }}
+            
+            ### Installation
+            Download the zip file and install via Arduino IDE Library Manager.
+            
+            ### Changes
+            Auto-generated release from commit: ${{ github.sha }}
+          files: |
+            dist/Esp32-RTOS-Serial.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
