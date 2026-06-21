@@ -26,7 +26,7 @@ void RTOSSerial::begin(unsigned long baud, size_t bufSize) {
 }
 
 void RTOSSerial::end() {
-  if (_rxUp) { Serial.onReceive(nullptr); _rxUp = false; }
+  _rxUp = false;  // RX handler stays registered; it no-ops once _buf is freed below
   if (_buf) { free(_buf); _buf = nullptr; _bufSize = 0; _head = 0; }
   if (_wMtx) { vSemaphoreDelete(_wMtx); _wMtx = nullptr; }
   if (_rMtx) { vSemaphoreDelete(_rMtx); _rMtx = nullptr; }
@@ -42,15 +42,25 @@ void _rtosOnRx() {
   while (Serial.available()) {
     uint8_t c = (uint8_t)Serial.read();
     rtosSerial._buf[rtosSerial._head % rtosSerial._bufSize] = c;
-    rtosSerial._head++;
+    rtosSerial._head = rtosSerial._head + 1;  // not ++ : volatile ++ is deprecated in C++20
   }
   xSemaphoreGive(rtosSerial._rMtx);
 }
 
+#if ARDUINO_USB_CDC_ON_BOOT
+// USB CDC (HWCDC) has no onReceive(); bridge its esp_event RX callback instead.
+void _rtosOnRxEvent(void*, esp_event_base_t, int32_t, void*) { _rtosOnRx(); }
+#endif
+
 void RTOSSerial::_startRx() {
   if (_rxUp) return;
   if (!_buf) begin();
+#if ARDUINO_USB_CDC_ON_BOOT
+  static bool hooked = false;  // HWCDC has no detach; register the handler once
+  if (!hooked) { Serial.onEvent(ARDUINO_HW_CDC_RX_EVENT, _rtosOnRxEvent); hooked = true; }
+#else
   Serial.onReceive(_rtosOnRx);
+#endif
   _rxUp = true;
 }
 
